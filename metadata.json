@@ -1,0 +1,7 @@
+{
+  "name": "VoxTask Pro",
+  "description": "A high-performance task management application featuring a voice-first interface powered by Gemini Live API, Kanban board management, and a dedicated 'Car Mode' for a CarPlay-inspired experience.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
