@@ -1,8 +1,9 @@
+
 from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-from sqlalchemy import Column, String, Float, Text, create_engine, ForeignKey
+from sqlalchemy import Column, String, Float, Text, create_engine, ForeignKey, inspect, text
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from passlib.context import CryptContext
 import uuid
@@ -27,14 +28,21 @@ engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
+# --- SCHEMA DEFINITIONS ---
+
+class SchemaMigrationModel(Base):
+    __tablename__ = "schema_migrations"
+    version = Column(Float, primary_key=True)
+    applied_at = Column(Float)
+
 class UserModel(Base):
     __tablename__ = "users"
-    id = Column(String, primary_key=True, index=True) # ID or Google Sub ID
+    id = Column(String, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     name = Column(String)
     picture = Column(String, nullable=True)
-    password_hash = Column(String, nullable=True) # Null for Google users
-    tier = Column(String, default="free") # 'free' or 'pro'
+    password_hash = Column(String, nullable=True)
+    tier = Column(String, default="free")
 
 class TaskModel(Base):
     __tablename__ = "tasks"
@@ -47,14 +55,57 @@ class TaskModel(Base):
     status = Column(String)
     createdAt = Column(Float)
 
-# Create tables
-try:
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables initialized successfully.")
-except Exception as e:
-    logger.error(f"Failed to initialize database: {e}")
+# --- MIGRATION LOGIC ---
 
-# Pydantic Models
+def run_migrations(db: Session):
+    """
+    Handles database evolution by applying incremental changes.
+    To add a new column/table: 
+    1. Update the Model above.
+    2. Add a new version function to the 'migrations' dict below.
+    """
+    current_version = 0.0
+    
+    # Ensure migration table exists
+    if not inspect(engine).has_table("schema_migrations"):
+        Base.metadata.create_all(bind=engine, tables=[SchemaMigrationModel.__table__])
+    
+    version_row = db.query(SchemaMigrationModel).order_by(SchemaMigrationModel.version.desc()).first()
+    if version_row:
+        current_version = version_row.version
+
+    # Migration Definitions
+    # Version 1.0: Initial setup (handled by create_all)
+    # Version 1.1: Added password_hash to UserModel
+    
+    def migrate_1_1():
+        logger.info("Applying Migration 1.1: Add password_hash to users")
+        try:
+            db.execute(text("ALTER TABLE users ADD COLUMN password_hash TEXT"))
+        except Exception as e:
+            logger.warning(f"Column password_hash might already exist: {e}")
+
+    migrations = {
+        1.1: migrate_1_1,
+        # Add future migrations here: 1.2: migrate_1_2,
+    }
+
+    # Run missing migrations
+    sorted_versions = sorted(migrations.keys())
+    for v in sorted_versions:
+        if v > current_version:
+            logger.info(f"Applying migration version {v}...")
+            migrations[v]()
+            db.add(SchemaMigrationModel(version=v, applied_at=time.time()))
+            db.commit()
+            current_version = v
+
+    # Final sweep to catch any new tables defined in models
+    Base.metadata.create_all(bind=engine)
+    logger.info(f"Database schema is up to date (Version {current_version})")
+
+# --- API MODELS ---
+
 class UserSync(BaseModel):
     id: str
     email: str
@@ -106,6 +157,8 @@ class TaskResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# --- APP INITIALIZATION ---
+
 app = FastAPI(title="VoxTask Pro API")
 
 app.add_middleware(
@@ -115,6 +168,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Startup DB Check
+@app.on_event("startup")
+def startup_event():
+    db = SessionLocal()
+    try:
+        run_migrations(db)
+    finally:
+        db.close()
 
 def get_db():
     db = SessionLocal()
@@ -132,6 +194,8 @@ async def get_current_user_id(authorization: Optional[str] = Header(None)):
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "timestamp": time.time()}
+
+# --- AUTH ENDPOINTS ---
 
 @app.post("/auth/register", response_model=UserResponse)
 def register_user(user_data: UserRegister, db: Session = Depends(get_db)):
@@ -191,6 +255,8 @@ def upgrade_user(db: Session = Depends(get_db), user_id: str = Depends(get_curre
     db.refresh(db_user)
     return db_user
 
+# --- TASK ENDPOINTS ---
+
 @app.get("/tasks", response_model=List[TaskResponse])
 def read_tasks(db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
     db_tasks = db.query(TaskModel).filter(TaskModel.owner_id == user_id).all()
@@ -230,8 +296,12 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db), user_id: str = 
     db.commit()
     db.refresh(db_task)
     return {
-        **task.dict(),
         "id": db_task.id,
+        "title": db_task.title,
+        "description": db_task.description,
+        "deadline": db_task.deadline,
+        "tags": json.loads(db_task.tags),
+        "status": db_task.status,
         "createdAt": db_task.createdAt,
         "owner_id": db_task.owner_id
     }
