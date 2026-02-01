@@ -6,6 +6,19 @@ export enum TaskStatus {
   DONE = 'done'
 }
 
+export enum SubscriptionTier {
+  FREE = 'free',
+  PRO = 'pro'
+}
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  picture: string;
+  tier: SubscriptionTier;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -14,6 +27,7 @@ export interface Task {
   tags: string[];
   status: TaskStatus;
   createdAt: number;
+  owner_id?: string;
 }
 
 export interface TaskFormData {

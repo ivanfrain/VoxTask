@@ -1,13 +1,19 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Task, TaskStatus } from './types';
+import { Task, TaskStatus, User, SubscriptionTier } from './types';
 import { taskService } from './services/taskService';
 import TaskBoard from './components/TaskBoard';
 import TaskForm from './components/TaskForm';
 import VoiceAssistant from './components/VoiceAssistant';
 import CarPlayView from './components/CarPlayView';
+import AuthOverlay from './components/AuthOverlay';
+import ProfileDropdown from './components/ProfileDropdown';
 
 const App: React.FC = () => {
+  const [user, setUser] = useState<User | null>(() => {
+    const cached = localStorage.getItem('voxtask_current_user');
+    return cached ? JSON.parse(cached) : null;
+  });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
@@ -15,15 +21,16 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
   
   const prevBackendStatus = useRef(false);
 
   const fetchTasks = useCallback(async () => {
+    if (!user) return;
     setLoading(true);
     try {
       const isUp = await taskService.checkHealth();
       setBackendOnline(isUp);
-      
       const data = await taskService.getTasks();
       setTasks(data);
     } catch (error: any) {
@@ -31,38 +38,66 @@ const App: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user]);
 
   const handleSync = useCallback(async () => {
-    if (isSyncing) return;
+    if (isSyncing || !user) return;
     setIsSyncing(true);
     await taskService.processSyncQueue();
     const freshTasks = await taskService.getTasks();
     setTasks(freshTasks);
     setIsSyncing(false);
-  }, [isSyncing]);
+  }, [isSyncing, user]);
 
   useEffect(() => {
-    fetchTasks();
-    const interval = setInterval(async () => {
-      const isUp = await taskService.checkHealth();
-      
-      // Detection of recovery
-      if (isUp && !prevBackendStatus.current) {
-        console.log("Connection restored. Syncing...");
-        handleSync();
-      }
-      
-      setBackendOnline(isUp);
-      prevBackendStatus.current = isUp;
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [fetchTasks, handleSync]);
+    if (user) {
+      taskService.initUser(user);
+      fetchTasks();
+      const interval = setInterval(async () => {
+        const isUp = await taskService.checkHealth();
+        if (isUp && !prevBackendStatus.current) {
+          handleSync();
+        }
+        setBackendOnline(isUp);
+        prevBackendStatus.current = isUp;
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [user, fetchTasks, handleSync]);
+
+  const handleLogin = (userData: User) => {
+    setUser(userData);
+    taskService.initUser(userData);
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    taskService.initUser(null);
+    setTasks([]);
+  };
+
+  const handleUpgrade = async () => {
+    try {
+      const updatedUser = await taskService.upgradeTier();
+      setUser(updatedUser);
+      setUpgradeMessage("Welcome to PRO! Enjoy unlimited tasks.");
+      setTimeout(() => setUpgradeMessage(null), 5000);
+    } catch (err) {
+      console.error("Upgrade failed", err);
+    }
+  };
 
   const handleCreateTask = async (formData: any) => {
-    await taskService.createTask(formData);
-    fetchTasks();
-    setIsFormOpen(false);
+    try {
+      await taskService.createTask(formData);
+      fetchTasks();
+      setIsFormOpen(false);
+    } catch (err: any) {
+      if (err.message === 'Upgrade required') {
+        setUpgradeMessage("Free limit reached! Upgrade to Pro for unlimited tasks.");
+        setTimeout(() => setUpgradeMessage(null), 5000);
+      }
+    }
   };
 
   const handleUpdateTask = async (id: string, updates: any) => {
@@ -81,6 +116,10 @@ const App: React.FC = () => {
     setEditingTask(task);
     setIsFormOpen(true);
   };
+
+  if (!user) {
+    return <AuthOverlay onLogin={handleLogin} />;
+  }
 
   if (isCarMode) {
     return (
@@ -104,13 +143,11 @@ const App: React.FC = () => {
               </div>
               <h1 className="text-xl font-bold tracking-tight text-slate-800">VoxTask<span className="text-blue-600">Pro</span></h1>
             </div>
-            
             <div className="flex items-center gap-2">
               <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${backendOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                 <i className={`fa-solid ${backendOnline ? 'fa-cloud' : 'fa-cloud-slash'} text-xs`}></i>
                 {backendOnline ? 'Cloud Sync' : 'Local Mode'}
               </div>
-              
               {isSyncing && (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold uppercase tracking-wider animate-pulse">
                   <i className="fa-solid fa-sync fa-spin text-xs"></i>
@@ -135,11 +172,24 @@ const App: React.FC = () => {
               <i className="fa-solid fa-plus"></i>
               <span className="hidden sm:inline">New Task</span>
             </button>
+            <ProfileDropdown user={user} tasks={tasks} onLogout={handleLogout} onUpgrade={handleUpgrade} />
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {upgradeMessage && (
+          <div className="mb-6 p-4 bg-blue-600 text-white rounded-xl shadow-lg flex items-center justify-between animate-in slide-in-from-top duration-300">
+            <div className="flex items-center gap-3">
+              <i className="fa-solid fa-star text-amber-300"></i>
+              <p className="font-bold">{upgradeMessage}</p>
+            </div>
+            {user.tier === SubscriptionTier.FREE && (
+              <button onClick={handleUpgrade} className="px-4 py-1 bg-white text-blue-600 rounded-lg font-bold text-sm hover:bg-blue-50 transition-colors">Upgrade Now</button>
+            )}
+          </div>
+        )}
+
         {!backendOnline && (
           <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-3 text-amber-800 text-sm">
             <i className="fa-solid fa-triangle-exclamation text-amber-500"></i>

@@ -1,42 +1,52 @@
 
-import { Task, TaskStatus, TaskFormData } from '../types';
+import { Task, TaskStatus, TaskFormData, User } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
-const LOCAL_STORAGE_KEY = 'voxtask_local_backup';
-const SYNC_QUEUE_KEY = 'voxtask_sync_queue';
+const AUTH_TOKEN_KEY = 'voxtask_auth_token';
+const USER_DATA_KEY = 'voxtask_current_user';
 
-interface SyncAction {
-  id: string; // Internal tracking ID
-  type: 'CREATE' | 'UPDATE' | 'DELETE';
-  tempId?: string; // For CREATE actions, to map back after server response
-  targetId?: string; // The ID of the task being acted upon
-  payload?: any;
-  timestamp: number;
-}
+let authToken: string | null = localStorage.getItem(AUTH_TOKEN_KEY);
+let currentUserId: string | null = null;
+
+const getStorageKey = (key: string) => currentUserId ? `voxtask_${currentUserId}_${key}` : `voxtask_anon_${key}`;
 
 const getLocalTasks = (): Task[] => {
-  const data = localStorage.getItem(LOCAL_STORAGE_KEY);
+  const data = localStorage.getItem(getStorageKey('local_backup'));
   return data ? JSON.parse(data) : [];
 };
 
 const saveLocalTasks = (tasks: Task[]) => {
-  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(tasks));
+  localStorage.setItem(getStorageKey('local_backup'), JSON.stringify(tasks));
 };
 
 const getSyncQueue = (): SyncAction[] => {
-  const data = localStorage.getItem(SYNC_QUEUE_KEY);
+  const data = localStorage.getItem(getStorageKey('sync_queue'));
   return data ? JSON.parse(data) : [];
 };
 
 const saveSyncQueue = (queue: SyncAction[]) => {
-  localStorage.setItem(SYNC_QUEUE_KEY, JSON.stringify(queue));
+  localStorage.setItem(getStorageKey('sync_queue'), JSON.stringify(queue));
 };
 
+interface SyncAction {
+  id: string;
+  type: 'CREATE' | 'UPDATE' | 'DELETE';
+  tempId?: string;
+  targetId?: string;
+  payload?: any;
+  timestamp: number;
+}
+
 async function fetchWithTimeout(resource: string, options: RequestInit = {}, timeout = 3000) {
+  const headers = {
+    ...options.headers,
+    'Authorization': `Bearer ${authToken}`
+  };
+
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
   try {
-    const response = await fetch(resource, { ...options, signal: controller.signal });
+    const response = await fetch(resource, { ...options, headers, signal: controller.signal });
     clearTimeout(id);
     return response;
   } catch (error) {
@@ -48,6 +58,46 @@ async function fetchWithTimeout(resource: string, options: RequestInit = {}, tim
 export const taskService = {
   isBackendAvailable: false,
   isSyncing: false,
+
+  initUser: (user: User | null) => {
+    currentUserId = user?.id || null;
+    if (user) {
+      authToken = user.id;
+      localStorage.setItem(AUTH_TOKEN_KEY, user.id);
+      localStorage.setItem(USER_DATA_KEY, JSON.stringify(user));
+    } else {
+      authToken = null;
+      currentUserId = null;
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      localStorage.removeItem(USER_DATA_KEY);
+    }
+  },
+
+  setToken: (token: string | null) => {
+    authToken = token;
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  },
+
+  syncUser: async (userData: any): Promise<User> => {
+    const response = await fetch(`${API_BASE_URL}/users/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    });
+    const syncedUser = await response.json();
+    taskService.initUser(syncedUser);
+    return syncedUser;
+  },
+
+  upgradeTier: async (): Promise<User> => {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/users/upgrade`, {
+      method: 'POST'
+    });
+    const updatedUser = await response.json();
+    taskService.initUser(updatedUser);
+    return updatedUser;
+  },
 
   checkHealth: async (): Promise<boolean> => {
     try {
@@ -79,10 +129,10 @@ export const taskService = {
     const newTask: Task = {
       ...data,
       id: tempId,
-      createdAt: Date.now() / 1000
+      createdAt: Date.now() / 1000,
+      owner_id: currentUserId || undefined
     };
 
-    // Optimistic Update
     const local = getLocalTasks();
     saveLocalTasks([...local, newTask]);
 
@@ -93,16 +143,17 @@ export const taskService = {
         body: JSON.stringify(data),
       });
       
-      if (!response.ok) throw new Error('Create failed');
+      if (!response.ok) {
+        if (response.status === 403) throw new Error('Upgrade required');
+        throw new Error('Create failed');
+      }
       const serverTask = await response.json();
-      
-      // Replace local task with server version (real ID)
       const updatedLocal = getLocalTasks().map(t => t.id === tempId ? serverTask : t);
       saveLocalTasks(updatedLocal);
       return serverTask;
-    } catch (error) {
+    } catch (error: any) {
+      if (error.message === 'Upgrade required') throw error;
       taskService.isBackendAvailable = false;
-      // Queue for later
       const queue = getSyncQueue();
       queue.push({
         id: Math.random().toString(36).substr(2, 9),
@@ -117,7 +168,6 @@ export const taskService = {
   },
 
   updateTask: async (id: string, updates: Partial<Task>): Promise<Task> => {
-    // Optimistic Update
     const local = getLocalTasks();
     const updatedTasks = local.map(t => t.id === id ? { ...t, ...updates } : t);
     saveLocalTasks(updatedTasks);
@@ -125,13 +175,11 @@ export const taskService = {
 
     try {
       if (id.startsWith('local-')) throw new Error('Wait for sync');
-      
       const response = await fetchWithTimeout(`${API_BASE_URL}/tasks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      
       if (!response.ok) throw new Error('Update failed');
       return await response.json();
     } catch (error) {
@@ -150,18 +198,15 @@ export const taskService = {
   },
 
   deleteTask: async (id: string): Promise<void> => {
-    // Optimistic Update
     const local = getLocalTasks();
     saveLocalTasks(local.filter(t => t.id !== id));
 
     try {
       if (id.startsWith('local-')) {
-        // Just remove from local queue if it was a pending CREATE
         const queue = getSyncQueue().filter(q => q.tempId !== id);
         saveSyncQueue(queue);
         return;
       }
-      
       const response = await fetchWithTimeout(`${API_BASE_URL}/tasks/${id}`, { method: 'DELETE' });
       if (!response.ok) throw new Error('Delete failed');
     } catch (error) {
@@ -183,8 +228,6 @@ export const taskService = {
     if (queue.length === 0) return;
 
     taskService.isSyncing = true;
-    console.log(`[Sync] Processing ${queue.length} pending actions...`);
-
     const processedIds: string[] = [];
     const idMap: Record<string, string> = {};
 
@@ -193,45 +236,47 @@ export const taskService = {
         if (action.type === 'CREATE') {
           const response = await fetch(`${API_BASE_URL}/tasks`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify(action.payload),
           });
           if (response.ok) {
             const serverTask = await response.json();
             if (action.tempId) idMap[action.tempId] = serverTask.id;
             processedIds.push(action.id);
+          } else if (response.status === 403) {
+            // Tier limit reached during sync - keep in queue
+            break;
           }
         } else if (action.type === 'UPDATE') {
-          // If the targetId was a tempId from a previous CREATE in this session
           const finalId = idMap[action.targetId!] || action.targetId;
-          if (finalId?.startsWith('local-')) {
-             // Still local? Skip update until next sync pass or ignore if parent create failed
-             continue;
-          }
+          if (finalId?.startsWith('local-')) continue;
           const response = await fetch(`${API_BASE_URL}/tasks/${finalId}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify(action.payload),
           });
           if (response.ok) processedIds.push(action.id);
         } else if (action.type === 'DELETE') {
           const finalId = idMap[action.targetId!] || action.targetId;
-          if (finalId?.startsWith('local-')) {
-            processedIds.push(action.id);
-            continue;
-          }
-          const response = await fetch(`${API_BASE_URL}/tasks/${finalId}`, { method: 'DELETE' });
+          const response = await fetch(`${API_BASE_URL}/tasks/${finalId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${authToken}` }
+          });
           if (response.ok || response.status === 404) processedIds.push(action.id);
         }
       } catch (err) {
-        console.error('[Sync] Action failed:', action, err);
-        break; // Stop replaying if backend goes down again
+        break;
       }
     }
 
     const remainingQueue = getSyncQueue().filter(q => !processedIds.includes(q.id));
     saveSyncQueue(remainingQueue);
     taskService.isSyncing = false;
-    console.log(`[Sync] Finished. Remaining in queue: ${remainingQueue.length}`);
   }
 };
