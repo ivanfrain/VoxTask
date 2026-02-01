@@ -1,46 +1,48 @@
 # VoxTask Pro
 
-VoxTask Pro is a professional-grade task management ecosystem. It features a voice-first interface powered by Gemini Live, a touch-optimized CarPlay experience, and a robust FastAPI backend.
+VoxTask Pro is a high-performance task management ecosystem with a voice-first interface powered by Gemini Live and a dedicated CarPlay-inspired interface.
 
-## 🏗️ Architecture
+## 🏗️ Clean Architecture
 
-The project is organized into two primary modules:
+The project is now strictly modularized:
 
-- **`/backend`**: Python FastAPI server with SQLAlchemy/SQLite persistence.
-- **`/frontend`**: React source code, components, and services.
+```text
+/ (Project Root)
+├── backend/            # Python FastAPI & Persistence
+│   ├── main.py         # API Logic & SQLite Database
+│   └── requirements.txt # Dependency manifest
+├── frontend/           # React Web Application
+│   ├── components/     # UI Layer (TaskBoard, TaskCard, TaskForm, etc.)
+│   ├── services/       # API Integration Layer
+│   ├── types.ts        # Shared TypeScript interfaces
+│   └── App.tsx         # Main Application logic
+├── index.html          # Entry HTML
+├── index.tsx           # Entry React Mount
+├── metadata.json       # System Permissions
+└── README.md           # Documentation
+```
 
-## 🚀 Quick Start
+## 🚀 Getting Started
 
-### 1. Backend (Persistence & API)
-Run the backend on your local machine to enable permanent storage:
+### 1. Start the Data Layer (Backend)
+The backend provides persistent storage using SQLite.
 ```bash
 pip install -r backend/requirements.txt
 python backend/main.py
 ```
-*The server will be live at http://localhost:8000.*
 
-### 2. Frontend (UI & Voice)
-Access the web app via `index.html`. It is pre-configured to:
-- Connect to your local backend (Cloud Sync).
-- Fallback to `localStorage` if the backend is unreachable (Local Mode).
-- Use Gemini Live API for voice commands.
+### 2. Launch the Application
+Open `index.html` in your browser.
+- **Cloud Sync**: Active when the backend is running.
+- **Local Mode**: Active if the backend is unreachable (uses `localStorage`).
 
-## 🎙️ Voice Commands
-The Voice Assistant allows hands-free task management. Simply speak:
-- *"Create a task: Prepare board meeting, deadline next Monday, tags: Work, High-Priority."*
-- *"Add a task to buy milk with a tag Shopping."*
+## 🎙️ Voice Controls
+Click the microphone icon to activate the Gemini-powered assistant.
+- *"Add a task to review the project code by Friday with a 'priority' tag."*
+- *"Create a task: Grocery shopping, description: Milk and eggs."*
 
 ## 🚗 Car Mode
-Designed for high-contrast visibility and ease of use, Car Mode simplifies your task list into large touch targets, perfect for checking your schedule while on the move.
-
----
-
-## 🛠️ API Reference
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/health` | `GET` | System health check |
-| `/tasks` | `GET` | Fetch all tasks |
-| `/tasks` | `POST` | Create a new task |
-| `/tasks/{id}` | `PATCH` | Update task status or details |
-| `/tasks/{id}` | `DELETE` | Remove a task |
+Optimized for safe interaction:
+- High-contrast text.
+- Oversized touch targets.
+- Focus on "To Do" and "Done" actions.
