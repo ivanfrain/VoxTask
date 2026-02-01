@@ -13,14 +13,20 @@ const App: React.FC = () => {
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
   const [isCarMode, setIsCarMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [backendOnline, setBackendOnline] = useState(false);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
     try {
+      // Check health first to set UI state
+      const isUp = await taskService.checkHealth();
+      setBackendOnline(isUp);
+      
       const data = await taskService.getTasks();
       setTasks(data);
-    } catch (error) {
-      console.error('Failed to fetch tasks:', error);
+    } catch (error: any) {
+      console.error('Fetch failed:', error);
+      // Fallback is handled inside the service
     } finally {
       setLoading(false);
     }
@@ -28,6 +34,12 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fetchTasks();
+    // Poll for backend health periodically
+    const interval = setInterval(async () => {
+      const isUp = await taskService.checkHealth();
+      setBackendOnline(isUp);
+    }, 10000);
+    return () => clearInterval(interval);
   }, [fetchTasks]);
 
   const handleCreateTask = async (formData: any) => {
@@ -69,11 +81,19 @@ const App: React.FC = () => {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
-              <i className="fa-solid fa-check-double text-sm"></i>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
+                <i className="fa-solid fa-check-double text-sm"></i>
+              </div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-800">VoxTask<span className="text-blue-600">Pro</span></h1>
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-slate-800">VoxTask<span className="text-blue-600">Pro</span></h1>
+
+            {/* Sync Status Badge */}
+            <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${backendOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+              <i className={`fa-solid ${backendOnline ? 'fa-cloud' : 'fa-cloud-slash'} text-xs`}></i>
+              {backendOnline ? 'Cloud Sync' : 'Local Mode'}
+            </div>
           </div>
           
           <div className="flex items-center gap-3">
@@ -96,6 +116,14 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
+        {!backendOnline && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-3 text-amber-800 text-sm">
+            <i className="fa-solid fa-triangle-exclamation text-amber-500"></i>
+            <p><strong>Offline Mode:</strong> The Python backend is unreachable. You can still manage tasks; they will be saved to your browser and synced later.</p>
+            <button onClick={fetchTasks} className="ml-auto font-bold underline hover:no-underline">Retry Connect</button>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
