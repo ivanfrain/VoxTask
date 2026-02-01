@@ -7,7 +7,8 @@ VoxTask Pro is a task management application featuring a voice-first interface a
 ```text
 / (Project Root)
 ├── backend/            # Python/FastAPI Application
-│   └── main.py         # Backend logic & SQLite DB
+│   ├── main.py         # Backend logic & SQLite DB
+│   └── requirements.txt # Python dependencies
 ├── frontend/           # React Frontend Source
 │   ├── components/     # UI Components
 │   ├── services/       # API Services
@@ -23,8 +24,15 @@ VoxTask Pro is a task management application featuring a voice-first interface a
 
 ### Backend (Python)
 1. Navigate to the project root.
-2. Install dependencies: `pip install fastapi uvicorn sqlalchemy pydantic`.
-3. Run: `python backend/main.py` or `uvicorn backend.main:app --port 8000`.
+2. Install dependencies:
+   ```bash
+   pip install -r backend/requirements.txt
+   ```
+3. Run the backend:
+   ```bash
+   python backend/main.py
+   ```
+   *Note: The server will be available at http://localhost:8000.*
 
 ### Frontend (React)
 The frontend is pre-configured to run from the root `index.html`. It automatically communicates with the backend at `http://localhost:8000`. If the backend is unavailable, it uses local browser storage.
