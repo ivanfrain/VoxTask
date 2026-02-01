@@ -1,10 +1,10 @@
-
 from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from sqlalchemy import Column, String, Float, Text, create_engine, ForeignKey
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
+from passlib.context import CryptContext
 import uuid
 import time
 import json
@@ -19,6 +19,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Password hashing configuration
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 SQLALCHEMY_DATABASE_URL = "sqlite:///./tasks.db"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -26,10 +29,11 @@ Base = declarative_base()
 
 class UserModel(Base):
     __tablename__ = "users"
-    id = Column(String, primary_key=True, index=True) # Google Sub ID
+    id = Column(String, primary_key=True, index=True) # ID or Google Sub ID
     email = Column(String, unique=True, index=True)
     name = Column(String)
-    picture = Column(String)
+    picture = Column(String, nullable=True)
+    password_hash = Column(String, nullable=True) # Null for Google users
     tier = Column(String, default="free") # 'free' or 'pro'
 
 class TaskModel(Base):
@@ -57,11 +61,20 @@ class UserSync(BaseModel):
     name: str
     picture: str
 
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
 class UserResponse(BaseModel):
     id: str
     email: str
     name: str
-    picture: str
+    picture: Optional[str]
     tier: str
 
 class TaskBase(BaseModel):
@@ -113,14 +126,41 @@ def get_db():
 async def get_current_user_id(authorization: Optional[str] = Header(None)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-    # In a real app, verify the Google JWT here. 
-    # For this demo, we assume the token IS the user's Google ID.
     token = authorization.replace("Bearer ", "")
     return token
 
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "timestamp": time.time()}
+
+@app.post("/auth/register", response_model=UserResponse)
+def register_user(user_data: UserRegister, db: Session = Depends(get_db)):
+    db_user = db.query(UserModel).filter(UserModel.email == user_data.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    new_user = UserModel(
+        id=str(uuid.uuid4()),
+        email=user_data.email,
+        name=user_data.name,
+        password_hash=pwd_context.hash(user_data.password),
+        tier="free"
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+@app.post("/auth/login", response_model=UserResponse)
+def login_user(credentials: UserLogin, db: Session = Depends(get_db)):
+    db_user = db.query(UserModel).filter(UserModel.email == credentials.email).first()
+    if not db_user or not db_user.password_hash:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not pwd_context.verify(credentials.password, db_user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    return db_user
 
 @app.post("/users/sync", response_model=UserResponse)
 def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
@@ -170,7 +210,6 @@ def read_tasks(db: Session = Depends(get_db), user_id: str = Depends(get_current
 
 @app.post("/tasks", response_model=TaskResponse)
 def create_task(task: TaskCreate, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    # Free tier limit
     db_user = db.query(UserModel).filter(UserModel.id == user_id).first()
     if db_user and db_user.tier == "free":
         task_count = db.query(TaskModel).filter(TaskModel.owner_id == user_id).count()

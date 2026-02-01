@@ -1,4 +1,3 @@
-
 import { Task, TaskStatus, TaskFormData, User } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -77,6 +76,36 @@ export const taskService = {
     authToken = token;
     if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
     else localStorage.removeItem(AUTH_TOKEN_KEY);
+  },
+
+  registerWithEmail: async (email: string, password: string, name: string): Promise<User> => {
+    const response = await fetch(`${API_BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Registration failed');
+    }
+    const user = await response.json();
+    taskService.initUser(user);
+    return user;
+  },
+
+  loginWithEmail: async (email: string, password: string): Promise<User> => {
+    const response = await fetch(`${API_BASE_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Login failed');
+    }
+    const user = await response.json();
+    taskService.initUser(user);
+    return user;
   },
 
   syncUser: async (userData: any): Promise<User> => {
@@ -247,7 +276,6 @@ export const taskService = {
             if (action.tempId) idMap[action.tempId] = serverTask.id;
             processedIds.push(action.id);
           } else if (response.status === 403) {
-            // Tier limit reached during sync - keep in queue
             break;
           }
         } else if (action.type === 'UPDATE') {
