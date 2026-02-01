@@ -1,44 +1,46 @@
 # VoxTask Pro
 
-VoxTask Pro is a task management application featuring a voice-first interface and "Car Mode" support.
+VoxTask Pro is a professional-grade task management ecosystem. It features a voice-first interface powered by Gemini Live, a touch-optimized CarPlay experience, and a robust FastAPI backend.
 
-## Project Structure
+## 🏗️ Architecture
 
-```text
-/ (Project Root)
-├── backend/            # Python/FastAPI Application
-│   ├── main.py         # Backend logic & SQLite DB
-│   └── requirements.txt # Python dependencies
-├── frontend/           # React Frontend Source
-│   ├── components/     # UI Components
-│   ├── services/       # API Services
-│   ├── types.ts        # Shared Type Definitions
-│   └── App.tsx         # Main Application logic
-├── index.html          # Web Entry Point
-├── index.tsx           # React Entry Point
-├── metadata.json       # App Permissions
-└── README.md           # Documentation
+The project is organized into two primary modules:
+
+- **`/backend`**: Python FastAPI server with SQLAlchemy/SQLite persistence.
+- **`/frontend`**: React source code, components, and services.
+
+## 🚀 Quick Start
+
+### 1. Backend (Persistence & API)
+Run the backend on your local machine to enable permanent storage:
+```bash
+pip install -r backend/requirements.txt
+python backend/main.py
 ```
+*The server will be live at http://localhost:8000.*
 
-## Setup Instructions
+### 2. Frontend (UI & Voice)
+Access the web app via `index.html`. It is pre-configured to:
+- Connect to your local backend (Cloud Sync).
+- Fallback to `localStorage` if the backend is unreachable (Local Mode).
+- Use Gemini Live API for voice commands.
 
-### Backend (Python)
-1. Navigate to the project root.
-2. Install dependencies:
-   ```bash
-   pip install -r backend/requirements.txt
-   ```
-3. Run the backend:
-   ```bash
-   python backend/main.py
-   ```
-   *Note: The server will be available at http://localhost:8000.*
+## 🎙️ Voice Commands
+The Voice Assistant allows hands-free task management. Simply speak:
+- *"Create a task: Prepare board meeting, deadline next Monday, tags: Work, High-Priority."*
+- *"Add a task to buy milk with a tag Shopping."*
 
-### Frontend (React)
-The frontend is pre-configured to run from the root `index.html`. It automatically communicates with the backend at `http://localhost:8000`. If the backend is unavailable, it uses local browser storage.
+## 🚗 Car Mode
+Designed for high-contrast visibility and ease of use, Car Mode simplifies your task list into large touch targets, perfect for checking your schedule while on the move.
 
-## Features
-- **Voice AI**: Create tasks naturally using Gemini Live API.
-- **CarPlay Mode**: High-contrast, touch-optimized interface for driving.
-- **Kanban Board**: Drag-and-drop style task tracking.
-- **Hybrid Sync**: Offline support via LocalStorage fallback.
+---
+
+## 🛠️ API Reference
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/health` | `GET` | System health check |
+| `/tasks` | `GET` | Fetch all tasks |
+| `/tasks` | `POST` | Create a new task |
+| `/tasks/{id}` | `PATCH` | Update task status or details |
+| `/tasks/{id}` | `DELETE` | Remove a task |
