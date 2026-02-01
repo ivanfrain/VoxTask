@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, TaskStatus } from './types';
 import { taskService } from './services/taskService';
 import TaskBoard from './components/TaskBoard';
@@ -14,6 +14,9 @@ const App: React.FC = () => {
   const [isCarMode, setIsCarMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  const prevBackendStatus = useRef(false);
 
   const fetchTasks = useCallback(async () => {
     setLoading(true);
@@ -30,14 +33,31 @@ const App: React.FC = () => {
     }
   }, []);
 
+  const handleSync = useCallback(async () => {
+    if (isSyncing) return;
+    setIsSyncing(true);
+    await taskService.processSyncQueue();
+    const freshTasks = await taskService.getTasks();
+    setTasks(freshTasks);
+    setIsSyncing(false);
+  }, [isSyncing]);
+
   useEffect(() => {
     fetchTasks();
     const interval = setInterval(async () => {
       const isUp = await taskService.checkHealth();
+      
+      // Detection of recovery
+      if (isUp && !prevBackendStatus.current) {
+        console.log("Connection restored. Syncing...");
+        handleSync();
+      }
+      
       setBackendOnline(isUp);
-    }, 10000);
+      prevBackendStatus.current = isUp;
+    }, 5000);
     return () => clearInterval(interval);
-  }, [fetchTasks]);
+  }, [fetchTasks, handleSync]);
 
   const handleCreateTask = async (formData: any) => {
     await taskService.createTask(formData);
@@ -84,11 +104,22 @@ const App: React.FC = () => {
               </div>
               <h1 className="text-xl font-bold tracking-tight text-slate-800">VoxTask<span className="text-blue-600">Pro</span></h1>
             </div>
-            <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${backendOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
-              <i className={`fa-solid ${backendOnline ? 'fa-cloud' : 'fa-cloud-slash'} text-xs`}></i>
-              {backendOnline ? 'Cloud Sync' : 'Local Mode'}
+            
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${backendOnline ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
+                <i className={`fa-solid ${backendOnline ? 'fa-cloud' : 'fa-cloud-slash'} text-xs`}></i>
+                {backendOnline ? 'Cloud Sync' : 'Local Mode'}
+              </div>
+              
+              {isSyncing && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-600 text-[10px] font-bold uppercase tracking-wider animate-pulse">
+                  <i className="fa-solid fa-sync fa-spin text-xs"></i>
+                  Syncing
+                </div>
+              )}
             </div>
           </div>
+          
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsCarMode(true)}
@@ -112,15 +143,15 @@ const App: React.FC = () => {
         {!backendOnline && (
           <div className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-xl flex items-center gap-3 text-amber-800 text-sm">
             <i className="fa-solid fa-triangle-exclamation text-amber-500"></i>
-            <p><strong>Offline Mode:</strong> The Python backend is unreachable. You can still manage tasks locally.</p>
-            <button onClick={fetchTasks} className="ml-auto font-bold underline hover:no-underline">Retry Connect</button>
+            <p><strong>Offline Mode:</strong> Your changes are being saved locally and will sync when the backend is back online.</p>
+            <button onClick={fetchTasks} className="ml-auto font-bold underline hover:no-underline">Check Connection</button>
           </div>
         )}
 
-        {loading ? (
+        {loading && tasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4">
             <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-            <p className="text-slate-500 font-medium">Synchronizing your tasks...</p>
+            <p className="text-slate-500 font-medium">Loading your tasks...</p>
           </div>
         ) : (
           <TaskBoard 

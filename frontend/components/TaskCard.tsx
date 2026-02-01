@@ -10,6 +10,8 @@ interface TaskCardProps {
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({ task, onDelete, onEdit, onStatusChange }) => {
+  const isUnsynced = task.id.startsWith('local-');
+
   const getStatusAction = () => {
     switch (task.status) {
       case TaskStatus.TODO:
@@ -28,7 +30,20 @@ const TaskCard: React.FC<TaskCardProps> = ({ task, onDelete, onEdit, onStatusCha
   return (
     <div className="group bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all">
       <div className="flex justify-between items-start mb-2">
-        <h4 className="font-bold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">{task.title}</h4>
+        <div className="flex items-center gap-2">
+          <h4 className="font-bold text-slate-800 leading-tight group-hover:text-blue-600 transition-colors">
+            {task.title}
+          </h4>
+          {isUnsynced ? (
+            <span title="En attente de synchronisation" className="text-amber-500 flex items-center">
+              <i className="fa-solid fa-cloud-arrow-up text-[10px] animate-pulse"></i>
+            </span>
+          ) : (
+            <span title="Synchronisé avec le cloud" className="text-emerald-500 flex items-center">
+              <i className="fa-solid fa-cloud text-[10px]"></i>
+            </span>
+          )}
+        </div>
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button onClick={() => onEdit(task)} className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
             <i className="fa-solid fa-pen text-xs"></i>
