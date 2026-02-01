@@ -1,24 +1,25 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Python Virtual Environment
+venv/
+ENV/
+env/
 
-node_modules
-dist
-dist-ssr
-*.local
+# SQLite Databases
+*.db
+*.db-journal
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Python Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables
+.env
+
+# OS specific files
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+
+# Frontend/Build artifacts (if any)
+node_modules/
+dist/
+.cache/
