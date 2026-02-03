@@ -11,6 +11,7 @@ The project is strictly modularized to separate concerns:
 / (Project Root)
 ├── backend/            # Python FastAPI & Persistence
 │   ├── main.py         # API Logic & Migration Runner
+│   ├── create_admin.py # CLI Admin Creation Tool
 │   ├── MIGRATIONS.md   # Schema evolution log
 │   └── requirements.txt # Dependency manifest
 ├── frontend/           # React Web Application
@@ -25,12 +26,23 @@ The project is strictly modularized to separate concerns:
 
 ## 🚀 Getting Started
 
-1. **Start the Backend**:
-   ```bash
-   pip install -r backend/requirements.txt
-   python backend/main.py
-   ```
-2. **Open the App**: The frontend will automatically connect to `localhost:8000`.
+### 1. Backend Setup
+Install dependencies and initialize the database:
+```bash
+pip install -r backend/requirements.txt
+```
+
+### 2. Create an Admin User (Optional)
+If you want to set up an administrator account before starting the server:
+```bash
+cd backend
+python create_admin.py
+```
+
+### 3. Launch Server
+```bash
+python backend/main.py
+```
 
 ---
 

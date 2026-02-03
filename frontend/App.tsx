@@ -8,6 +8,7 @@ import VoiceAssistant from './components/VoiceAssistant';
 import CarPlayView from './components/CarPlayView';
 import AuthOverlay from './components/AuthOverlay';
 import ProfileDropdown from './components/ProfileDropdown';
+import AdminConsole from './components/AdminConsole';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(() => {
@@ -18,12 +19,21 @@ const App: React.FC = () => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>(undefined);
   const [isCarMode, setIsCarMode] = useState(false);
+  const [isAdminMode, setIsAdminMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [upgradeMessage, setUpgradeMessage] = useState<string | null>(null);
   
   const prevBackendStatus = useRef(false);
+
+  const handleLogout = useCallback(() => {
+    setUser(null);
+    taskService.initUser(null);
+    setTasks([]);
+    setIsAdminMode(false);
+    setIsCarMode(false);
+  }, []);
 
   const fetchTasks = useCallback(async () => {
     if (!user) return;
@@ -50,6 +60,16 @@ const App: React.FC = () => {
   }, [isSyncing, user]);
 
   useEffect(() => {
+    const handleBlocked = () => {
+      alert("Your session has been terminated because this account is suspended.");
+      handleLogout();
+    };
+
+    window.addEventListener('voxtask_account_blocked', handleBlocked);
+    return () => window.removeEventListener('voxtask_account_blocked', handleBlocked);
+  }, [handleLogout]);
+
+  useEffect(() => {
     if (user) {
       taskService.initUser(user);
       fetchTasks();
@@ -70,12 +90,6 @@ const App: React.FC = () => {
     taskService.initUser(userData);
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    taskService.initUser(null);
-    setTasks([]);
-  };
-
   const handleUpgrade = async () => {
     try {
       const updatedUser = await taskService.upgradeTier();
@@ -93,9 +107,11 @@ const App: React.FC = () => {
       fetchTasks();
       setIsFormOpen(false);
     } catch (err: any) {
-      if (err.message === 'Upgrade required') {
+      if (err.message.includes('Upgrade to Pro')) {
         setUpgradeMessage("Free limit reached! Upgrade to Pro for unlimited tasks.");
         setTimeout(() => setUpgradeMessage(null), 5000);
+      } else if (err.message.includes('suspended')) {
+          // Handled by event listener
       }
     }
   };
@@ -119,6 +135,10 @@ const App: React.FC = () => {
 
   if (!user) {
     return <AuthOverlay onLogin={handleLogin} />;
+  }
+
+  if (isAdminMode && user.isAdmin) {
+    return <AdminConsole onExit={() => setIsAdminMode(false)} />;
   }
 
   if (isCarMode) {
@@ -172,7 +192,13 @@ const App: React.FC = () => {
               <i className="fa-solid fa-plus"></i>
               <span className="hidden sm:inline">New Task</span>
             </button>
-            <ProfileDropdown user={user} tasks={tasks} onLogout={handleLogout} onUpgrade={handleUpgrade} />
+            <ProfileDropdown 
+              user={user} 
+              tasks={tasks} 
+              onLogout={handleLogout} 
+              onUpgrade={handleUpgrade} 
+              onOpenAdmin={() => setIsAdminMode(true)}
+            />
           </div>
         </div>
       </header>

@@ -15,8 +15,10 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  picture: string;
+  picture?: string;
   tier: SubscriptionTier;
+  isAdmin: boolean;
+  isBlocked: boolean;
 }
 
 export interface Task {

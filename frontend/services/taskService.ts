@@ -1,3 +1,4 @@
+
 import { Task, TaskStatus, TaskFormData, User } from '../types';
 
 const API_BASE_URL = 'http://localhost:8000';
@@ -47,6 +48,12 @@ async function fetchWithTimeout(resource: string, options: RequestInit = {}, tim
   try {
     const response = await fetch(resource, { ...options, headers, signal: controller.signal });
     clearTimeout(id);
+    if (response.status === 403) {
+      const err = await response.json();
+      if (err.detail === "Your account has been suspended.") {
+        window.dispatchEvent(new CustomEvent('voxtask_account_blocked'));
+      }
+    }
     return response;
   } catch (error) {
     clearTimeout(id);
@@ -70,12 +77,6 @@ export const taskService = {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       localStorage.removeItem(USER_DATA_KEY);
     }
-  },
-
-  setToken: (token: string | null) => {
-    authToken = token;
-    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
-    else localStorage.removeItem(AUTH_TOKEN_KEY);
   },
 
   registerWithEmail: async (email: string, password: string, name: string): Promise<User> => {
@@ -120,9 +121,8 @@ export const taskService = {
   },
 
   upgradeTier: async (): Promise<User> => {
-    const response = await fetchWithTimeout(`${API_BASE_URL}/users/upgrade`, {
-      method: 'POST'
-    });
+    const response = await fetchWithTimeout(`${API_BASE_URL}/users/upgrade`, { method: 'POST' });
+    if (!response.ok) throw new Error('Upgrade failed');
     const updatedUser = await response.json();
     taskService.initUser(updatedUser);
     return updatedUser;
@@ -131,8 +131,8 @@ export const taskService = {
   checkHealth: async (): Promise<boolean> => {
     try {
       const response = await fetchWithTimeout(`${API_BASE_URL}/health`, { method: 'GET' }, 1500);
-      taskService.isBackendAvailable = response.ok;
-      return response.ok;
+      taskService.isBackendAvailable = response?.ok || false;
+      return response?.ok || false;
     } catch {
       taskService.isBackendAvailable = false;
       return false;
@@ -142,7 +142,7 @@ export const taskService = {
   getTasks: async (): Promise<Task[]> => {
     try {
       const response = await fetchWithTimeout(`${API_BASE_URL}/tasks`);
-      if (!response.ok) throw new Error('Backend responded with error');
+      if (!response || !response.ok) throw new Error('Backend responded with error');
       const remoteTasks = await response.json();
       taskService.isBackendAvailable = true;
       saveLocalTasks(remoteTasks);
@@ -151,6 +151,24 @@ export const taskService = {
       taskService.isBackendAvailable = false;
       return getLocalTasks();
     }
+  },
+
+  // Admin specific methods
+  getAdminUsers: async (): Promise<User[]> => {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/admin/users`);
+    if (!response.ok) throw new Error('Failed to fetch user list');
+    return await response.json();
+  },
+
+  toggleUserBlock: async (userId: string): Promise<User> => {
+    const response = await fetchWithTimeout(`${API_BASE_URL}/admin/users/${userId}/block`, {
+      method: 'PATCH'
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.detail || 'Failed to toggle user block status');
+    }
+    return await response.json();
   },
 
   createTask: async (data: TaskFormData): Promise<Task> => {
@@ -173,7 +191,10 @@ export const taskService = {
       });
       
       if (!response.ok) {
-        if (response.status === 403) throw new Error('Upgrade required');
+        if (response.status === 403) {
+            const err = await response.json();
+            throw new Error(err.detail || 'Create failed');
+        }
         throw new Error('Create failed');
       }
       const serverTask = await response.json();
@@ -181,7 +202,8 @@ export const taskService = {
       saveLocalTasks(updatedLocal);
       return serverTask;
     } catch (error: any) {
-      if (error.message === 'Upgrade required') throw error;
+      if (error.message.includes('Upgrade to Pro')) throw error;
+      if (error.message.includes('suspended')) throw error;
       taskService.isBackendAvailable = false;
       const queue = getSyncQueue();
       queue.push({
@@ -275,7 +297,7 @@ export const taskService = {
             const serverTask = await response.json();
             if (action.tempId) idMap[action.tempId] = serverTask.id;
             processedIds.push(action.id);
-          } else if (response.status === 403) {
+          } else {
             break;
           }
         } else if (action.type === 'UPDATE') {

@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, Depends, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-from sqlalchemy import Column, String, Float, Text, create_engine, ForeignKey, inspect, text
+from sqlalchemy import Column, String, Float, Text, create_engine, ForeignKey, inspect, text, Boolean
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from passlib.context import CryptContext
 import uuid
@@ -43,6 +43,8 @@ class UserModel(Base):
     picture = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)
     tier = Column(String, default="free")
+    is_blocked = Column(Boolean, default=False)
+    is_admin = Column(Boolean, default=False)
 
 class TaskModel(Base):
     __tablename__ = "tasks"
@@ -58,15 +60,7 @@ class TaskModel(Base):
 # --- MIGRATION LOGIC ---
 
 def run_migrations(db: Session):
-    """
-    Handles database evolution by applying incremental changes.
-    To add a new column/table: 
-    1. Update the Model above.
-    2. Add a new version function to the 'migrations' dict below.
-    """
     current_version = 0.0
-    
-    # Ensure migration table exists
     if not inspect(engine).has_table("schema_migrations"):
         Base.metadata.create_all(bind=engine, tables=[SchemaMigrationModel.__table__])
     
@@ -74,23 +68,24 @@ def run_migrations(db: Session):
     if version_row:
         current_version = version_row.version
 
-    # Migration Definitions
-    # Version 1.0: Initial setup (handled by create_all)
-    # Version 1.1: Added password_hash to UserModel
-    
     def migrate_1_1():
         logger.info("Applying Migration 1.1: Add password_hash to users")
         try:
             db.execute(text("ALTER TABLE users ADD COLUMN password_hash TEXT"))
-        except Exception as e:
-            logger.warning(f"Column password_hash might already exist: {e}")
+        except Exception as e: logger.warning(f"Error 1.1: {e}")
+
+    def migrate_1_2():
+        logger.info("Applying Migration 1.2: Add is_blocked and is_admin to users")
+        try:
+            db.execute(text("ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT 0"))
+            db.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN DEFAULT 0"))
+        except Exception as e: logger.warning(f"Error 1.2: {e}")
 
     migrations = {
         1.1: migrate_1_1,
-        # Add future migrations here: 1.2: migrate_1_2,
+        1.2: migrate_1_2,
     }
 
-    # Run missing migrations
     sorted_versions = sorted(migrations.keys())
     for v in sorted_versions:
         if v > current_version:
@@ -100,17 +95,21 @@ def run_migrations(db: Session):
             db.commit()
             current_version = v
 
-    # Final sweep to catch any new tables defined in models
     Base.metadata.create_all(bind=engine)
-    logger.info(f"Database schema is up to date (Version {current_version})")
+    logger.info(f"Database schema version {current_version}")
 
 # --- API MODELS ---
 
-class UserSync(BaseModel):
+class UserResponse(BaseModel):
     id: str
     email: str
     name: str
-    picture: str
+    picture: Optional[str]
+    tier: str
+    is_blocked: bool
+    is_admin: bool
+    class Config:
+        from_attributes = True
 
 class UserRegister(BaseModel):
     email: EmailStr
@@ -121,22 +120,12 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-class UserResponse(BaseModel):
-    id: str
-    email: str
-    name: str
-    picture: Optional[str]
-    tier: str
-
-class TaskBase(BaseModel):
+class TaskCreate(BaseModel):
     title: str
     description: str
     deadline: str
     tags: List[str]
     status: str
-
-class TaskCreate(TaskBase):
-    pass
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -169,7 +158,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Startup DB Check
 @app.on_event("startup")
 def startup_event():
     db = SessionLocal()
@@ -180,16 +168,24 @@ def startup_event():
 
 def get_db():
     db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    try: yield db
+    finally: db.close()
 
-async def get_current_user_id(authorization: Optional[str] = Header(None)):
+async def get_current_user(authorization: Optional[str] = Header(None), db: Session = Depends(get_db)):
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
-    token = authorization.replace("Bearer ", "")
-    return token
+    user_id = authorization.replace("Bearer ", "")
+    user = db.query(UserModel).filter(UserModel.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    if user.is_blocked:
+        raise HTTPException(status_code=403, detail="Your account has been suspended.")
+    return user
+
+async def get_admin_user(current_user: UserModel = Depends(get_current_user)):
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Administrative privileges required.")
+    return current_user
 
 @app.get("/health")
 def health_check():
@@ -203,12 +199,18 @@ def register_user(user_data: UserRegister, db: Session = Depends(get_db)):
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
+    # First user is automatically admin for demonstration convenience
+    user_count = db.query(UserModel).count()
+    is_admin = user_count == 0
+
     new_user = UserModel(
         id=str(uuid.uuid4()),
         email=user_data.email,
         name=user_data.name,
         password_hash=pwd_context.hash(user_data.password),
-        tier="free"
+        tier="free",
+        is_admin=is_admin,
+        is_blocked=False
     )
     db.add(new_user)
     db.commit()
@@ -220,46 +222,65 @@ def login_user(credentials: UserLogin, db: Session = Depends(get_db)):
     db_user = db.query(UserModel).filter(UserModel.email == credentials.email).first()
     if not db_user or not db_user.password_hash:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
     if not pwd_context.verify(credentials.password, db_user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    
+    if db_user.is_blocked:
+        raise HTTPException(status_code=403, detail="Your account has been suspended.")
     return db_user
 
 @app.post("/users/sync", response_model=UserResponse)
-def sync_user(user_data: UserSync, db: Session = Depends(get_db)):
-    db_user = db.query(UserModel).filter(UserModel.id == user_data.id).first()
+def sync_user(user_data: dict, db: Session = Depends(get_db)):
+    db_user = db.query(UserModel).filter(UserModel.id == user_data['id']).first()
     if not db_user:
         db_user = UserModel(
-            id=user_data.id,
-            email=user_data.email,
-            name=user_data.name,
-            picture=user_data.picture,
-            tier="free"
+            id=user_data['id'],
+            email=user_data['email'],
+            name=user_data['name'],
+            picture=user_data.get('picture'),
+            tier="free",
+            is_admin=False,
+            is_blocked=False
         )
         db.add(db_user)
     else:
-        db_user.name = user_data.name
-        db_user.picture = user_data.picture
+        db_user.name = user_data['name']
+        db_user.picture = user_data.get('picture')
     db.commit()
     db.refresh(db_user)
+    if db_user.is_blocked:
+        raise HTTPException(status_code=403, detail="Your account has been suspended.")
     return db_user
 
 @app.post("/users/upgrade", response_model=UserResponse)
-def upgrade_user(db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    db_user = db.query(UserModel).filter(UserModel.id == user_id).first()
-    if not db_user:
-        raise HTTPException(status_code=404, detail="User not found")
-    db_user.tier = "pro"
+def upgrade_user(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    current_user.tier = "pro"
     db.commit()
-    db.refresh(db_user)
-    return db_user
+    db.refresh(current_user)
+    return current_user
+
+# --- ADMIN ENDPOINTS ---
+
+@app.get("/admin/users", response_model=List[UserResponse])
+def get_admin_users(db: Session = Depends(get_db), admin: UserModel = Depends(get_admin_user)):
+    return db.query(UserModel).all()
+
+@app.patch("/admin/users/{user_id}/block", response_model=UserResponse)
+def toggle_user_block(user_id: str, db: Session = Depends(get_db), admin: UserModel = Depends(get_admin_user)):
+    target_user = db.query(UserModel).filter(UserModel.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target_user.id == admin.id:
+        raise HTTPException(status_code=400, detail="You cannot block yourself.")
+    target_user.is_blocked = not target_user.is_blocked
+    db.commit()
+    db.refresh(target_user)
+    return target_user
 
 # --- TASK ENDPOINTS ---
 
 @app.get("/tasks", response_model=List[TaskResponse])
-def read_tasks(db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    db_tasks = db.query(TaskModel).filter(TaskModel.owner_id == user_id).all()
+def read_tasks(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    db_tasks = db.query(TaskModel).filter(TaskModel.owner_id == current_user.id).all()
     results = []
     for t in db_tasks:
         results.append({
@@ -275,16 +296,15 @@ def read_tasks(db: Session = Depends(get_db), user_id: str = Depends(get_current
     return results
 
 @app.post("/tasks", response_model=TaskResponse)
-def create_task(task: TaskCreate, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    db_user = db.query(UserModel).filter(UserModel.id == user_id).first()
-    if db_user and db_user.tier == "free":
-        task_count = db.query(TaskModel).filter(TaskModel.owner_id == user_id).count()
+def create_task(task: TaskCreate, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    if current_user.tier == "free":
+        task_count = db.query(TaskModel).filter(TaskModel.owner_id == current_user.id).count()
         if task_count >= 10:
-            raise HTTPException(status_code=403, detail="Free tier limit reached (10 tasks). Upgrade to Pro!")
+            raise HTTPException(status_code=403, detail="Free tier limit reached. Upgrade to Pro!")
 
     db_task = TaskModel(
         id=str(uuid.uuid4()),
-        owner_id=user_id,
+        owner_id=current_user.id,
         title=task.title,
         description=task.description,
         deadline=task.deadline,
@@ -307,17 +327,15 @@ def create_task(task: TaskCreate, db: Session = Depends(get_db), user_id: str = 
     }
 
 @app.patch("/tasks/{task_id}", response_model=TaskResponse)
-def update_task(task_id: str, updates: TaskUpdate, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    db_task = db.query(TaskModel).filter(TaskModel.id == task_id, TaskModel.owner_id == user_id).first()
+def update_task(task_id: str, updates: TaskUpdate, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    db_task = db.query(TaskModel).filter(TaskModel.id == task_id, TaskModel.owner_id == current_user.id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
     
     update_data = updates.dict(exclude_unset=True)
     for key, value in update_data.items():
-        if key == "tags":
-            setattr(db_task, key, json.dumps(value))
-        else:
-            setattr(db_task, key, value)
+        if key == "tags": setattr(db_task, key, json.dumps(value))
+        else: setattr(db_task, key, value)
     
     db.commit()
     db.refresh(db_task)
@@ -333,8 +351,8 @@ def update_task(task_id: str, updates: TaskUpdate, db: Session = Depends(get_db)
     }
 
 @app.delete("/tasks/{task_id}")
-def delete_task(task_id: str, db: Session = Depends(get_db), user_id: str = Depends(get_current_user_id)):
-    db_task = db.query(TaskModel).filter(TaskModel.id == task_id, TaskModel.owner_id == user_id).first()
+def delete_task(task_id: str, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    db_task = db.query(TaskModel).filter(TaskModel.id == task_id, TaskModel.owner_id == current_user.id).first()
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
     db.delete(db_task)
