@@ -17,8 +17,8 @@ export interface User {
   name: string;
   picture?: string;
   tier: SubscriptionTier;
-  isAdmin: boolean;
-  isBlocked: boolean;
+  is_admin: boolean;
+  is_blocked: boolean;
 }
 
 export interface Task {

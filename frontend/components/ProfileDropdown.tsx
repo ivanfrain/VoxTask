@@ -30,7 +30,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({ user, tasks, onLogout
               {user.name.charAt(0)}
             </div>
           )}
-          {user.isAdmin && (
+          {user.is_admin && (
             <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full border-2 border-white flex items-center justify-center">
               <i className="fa-solid fa-shield text-[6px] text-white"></i>
             </div>
@@ -81,7 +81,7 @@ const ProfileDropdown: React.FC<ProfileDropdownProps> = ({ user, tasks, onLogout
             </div>
             
             <div className="p-2">
-              {user.isAdmin && (
+              {user.is_admin && (
                 <button 
                   onClick={() => { onOpenAdmin?.(); setIsOpen(false); }}
                   className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 rounded-xl transition-colors mb-1"

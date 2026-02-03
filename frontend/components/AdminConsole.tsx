@@ -118,7 +118,7 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onExit }) => {
                           </span>
                         </td>
                         <td className="px-6 py-4">
-                          {user.isAdmin ? (
+                          {user.is_admin ? (
                             <span className="flex items-center gap-1.5 text-amber-600 text-xs font-bold">
                               <i className="fa-solid fa-crown text-[10px]"></i> Admin
                             </span>
@@ -128,19 +128,19 @@ const AdminConsole: React.FC<AdminConsoleProps> = ({ onExit }) => {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${user.isBlocked ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-                            <span className={`text-xs font-bold ${user.isBlocked ? 'text-red-600' : 'text-emerald-600'}`}>
-                              {user.isBlocked ? 'Suspended' : 'Active'}
+                            <div className={`w-2 h-2 rounded-full ${user.is_blocked ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+                            <span className={`text-xs font-bold ${user.is_blocked ? 'text-red-600' : 'text-emerald-600'}`}>
+                              {user.is_blocked ? 'Suspended' : 'Active'}
                             </span>
                           </div>
                         </td>
                         <td className="px-6 py-4 text-right">
-                          {!user.isAdmin && (
+                          {!user.is_admin && (
                             <button 
                               onClick={() => handleToggleBlock(user.id)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${user.isBlocked ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${user.is_blocked ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-red-50 text-red-600 hover:bg-red-100'}`}
                             >
-                              {user.isBlocked ? 'Restore Access' : 'Suspend User'}
+                              {user.is_blocked ? 'Restore Access' : 'Suspend User'}
                             </button>
                           )}
                         </td>

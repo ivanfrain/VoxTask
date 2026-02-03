@@ -137,7 +137,7 @@ const App: React.FC = () => {
     return <AuthOverlay onLogin={handleLogin} />;
   }
 
-  if (isAdminMode && user.isAdmin) {
+  if (isAdminMode && user.is_admin) {
     return <AdminConsole onExit={() => setIsAdminMode(false)} />;
   }
 
