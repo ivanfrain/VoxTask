@@ -1,14 +1,19 @@
 
 import sys
+import os
 import uuid
 import getpass
-from sqlalchemy.orm import Session
+
+# Add the current folder to sys.path so 'import main' works from root
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from main import UserModel, SessionLocal, pwd_context, run_migrations, engine, Base
+from sqlalchemy.orm import Session
 
 def create_admin():
     """
     CLI utility to create an administrator user manually.
-    Usage: python create_admin.py
+    Usage: python backend/create_admin.py
     """
     print("\n" + "="*40)
     print("   VOXTASK PRO: ADMIN SETUP UTILITY")
@@ -63,7 +68,7 @@ def create_admin():
         
         print("\n" + "-"*40)
         print(f"SUCCESS: Admin user '{name}' created!")
-        print(f"You can now log in at http://localhost:3000")
+        print(f"You can now log in at http://localhost:5173 (standard Vite port)")
         print("-"*40 + "\n")
 
     except Exception as e:

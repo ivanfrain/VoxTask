@@ -11,6 +11,7 @@ import time
 import json
 import logging
 import sys
+import os
 
 # Configure Logging
 logging.basicConfig(
@@ -23,7 +24,13 @@ logger = logging.getLogger(__name__)
 # Password hashing configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./tasks.db"
+# Standardize path resolution for the database
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "tasks.db")
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
+
+logger.info(f"Database location: {DB_PATH}")
+
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
