@@ -21,27 +21,36 @@ The project is strictly modularized to separate concerns:
 │   └── App.tsx         # Main Application logic
 ├── index.html          # Entry HTML
 ├── index.tsx           # Entry React Mount
+├── package.json        # Frontend CLI Configuration
+├── start.py            # Unified Dev Stack Launcher
 └── README.md           # Documentation
 ```
 
 ## 🚀 Getting Started
 
-### 1. Backend Setup
-Install dependencies and initialize the database:
+### ⚡ Quick Start (Recommended)
+Launch the entire stack (Backend + Frontend) with one command:
+```bash
+python start.py
+```
+
+### 🛠️ Manual Launch
+
+#### 1. Backend Setup
 ```bash
 pip install -r backend/requirements.txt
-```
-
-### 2. Create an Admin User (Optional)
-If you want to set up an administrator account before starting the server:
-```bash
-cd backend
-python create_admin.py
-```
-
-### 3. Launch Server
-```bash
 python backend/main.py
+```
+
+#### 2. Frontend Setup
+```bash
+npm install
+npm run dev
+```
+
+#### 3. Create an Admin User
+```bash
+python backend/create_admin.py
 ```
 
 ---
@@ -52,14 +61,9 @@ VoxTask Pro uses a built-in migration runner to ensure existing user data is pre
 
 ### How to update the Database Schema:
 
-When adding a new feature (e.g., adding a "priority" field to tasks):
-
-1. **Modify the Model**: Update the `TaskModel` or `UserModel` class in `backend/main.py` with the new field.
-2. **Create an Upgrader**: In the `run_migrations` function inside `backend/main.py`, define a new nested function (e.g., `migrate_1_2`) that uses `db.execute(text("ALTER TABLE ..."))`.
-3. **Register Version**: Add the new version number and function to the `migrations` dictionary.
-4. **Log the Change**: Update `backend/MIGRATIONS.md` with the new version and a description of the change.
-
-On the next server restart, the backend will automatically apply the change to all connected `tasks.db` files.
+1. **Modify the Model**: Update the `TaskModel` or `UserModel` class in `backend/main.py`.
+2. **Create an Upgrader**: Add a new migration function in `run_migrations`.
+3. **Log the Change**: Update `backend/MIGRATIONS.md`.
 
 ---
 
